@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const API_BASE = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8000/api';
+const API_BASE = '/api';
 
 // Debug logging
 console.log('NODE_ENV:', process.env.NODE_ENV);
@@ -166,7 +166,7 @@ function App() {
           marginBottom: '2rem',
           fontSize: '2.5rem'
         }}>
-          🤖 Trust Me GPT
+          🤖 Trust Me, Claude 🤗
         </h1>
         
         {error && (
@@ -184,7 +184,7 @@ function App() {
         {!gameState ? (
           <div style={{ textAlign: 'center' }}>
             <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
-              Welcome to Trust Me GPT! Play the ultimatum game against an AI over 6 rounds.
+               Welcome to "Trust Me, Claude"! Play the ultimatum game against an AI over 6 rounds.
             </p>
             <button 
               onClick={startNewGame}

@@ -22,7 +22,7 @@ if not OPENROUTER_API_KEY or OPENROUTER_API_KEY in ["placeholder_replace_with_re
 
 print(f"✅ OpenRouter API key loaded successfully (length: {len(OPENROUTER_API_KEY)})")
 
-app = FastAPI(title="TrustMeGPT Backend")
+app = FastAPI(title="TrustMeClaude Backend")
 
 # Add CORS middleware
 app.add_middleware(
@@ -178,7 +178,7 @@ Remember: You want to maximize YOUR total points over all 6 rounds. Consider wha
 
 @app.get("/")
 async def root():
-    return {"message": "TrustMeGPT Backend is running!", "api_configured": True}
+    return {"message": "TrustMeClaude Backend is running!", "api_configured": True}
 
 @app.post("/api/new-game")
 async def new_game():
@@ -373,4 +373,4 @@ async def ai_propose(session_id: str):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "message": "TrustMeGPT is ready to play!", "api_configured": True} 
+    return {"status": "healthy", "message": "TrustMeClaude is ready to play!", "api_configured": True} 
