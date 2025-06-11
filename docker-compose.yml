@@ -34,8 +34,6 @@ services:
     environment:
       VIRTUAL_HOST: trustmeclaude.janczechowski.com
       LETSENCRYPT_HOST: trustmeclaude.janczechowski.com
-    ports:
-      - "127.0.0.1:8000:80"
     networks:
       - localnet
       - nginx-proxy

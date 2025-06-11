@@ -1,4 +1,4 @@
-# Trust Me GPT Setup Guide
+# "Trust me, Claude" Setup Guide
 
 ## Prerequisites
 
