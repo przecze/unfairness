@@ -7,6 +7,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from loguru import logger
+import uuid
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
+from bson import ObjectId
+from typing import Optional
 
 # Load environment variables
 load_dotenv()
@@ -20,7 +26,7 @@ if not OPENROUTER_API_KEY or OPENROUTER_API_KEY in ["placeholder_replace_with_re
         "Get your API key from https://openrouter.ai/"
     )
 
-print(f"✅ OpenRouter API key loaded successfully (length: {len(OPENROUTER_API_KEY)})")
+logger.info(f"✅ OpenRouter API key loaded successfully (length: {len(OPENROUTER_API_KEY)})")
 
 app = FastAPI(title="TrustMeClaude Backend")
 
@@ -33,8 +39,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Game state storage (in-memory for now, as requested no DB)
-game_sessions = {}
 
 @dataclass
 class GameMessage:
@@ -44,6 +48,9 @@ class GameMessage:
     proposal: Optional[int] = None  # Points for human player (out of 10)
     decision: Optional[bool] = None  # Accept (True) or Reject (False)
     message: str = ""
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(**data)
 
 @dataclass
 class GameState:
@@ -78,6 +85,71 @@ class GameStateResponse(BaseModel):
     game_over: bool
     winner: Optional[str] = None
 
+class MongoGameStore:
+    def __init__(self):
+        mongodb_url = "mongodb://mongodb:27017/trustmeclaude"
+        self.client = MongoClient(mongodb_url, server_api=ServerApi('1'))
+        self.db = self.client.trustmeclaude
+        self.games = self.db.games
+
+        logger.info(f"Trying to connect to {mongodb_url}")
+        self.client.admin.command('ping')
+        logger.info("Successfully connected to MongoDB!")
+
+    async def create_game(self) -> str:
+        session_id = str(ObjectId())
+        game_state = GameState(session_id=session_id)
+        # Convert to dict and explicitly set _id
+        game_dict = asdict(game_state)
+        game_dict['_id'] = ObjectId(session_id)  # Use the same ID for both _id and session_id
+        self.games.insert_one(game_dict)
+        return session_id
+
+    async def get_game(self, session_id: str) -> Optional[GameState]:
+        try:
+            if game := self.games.find_one({"_id": ObjectId(session_id)}):
+                # Convert ObjectId to string for session_id
+                game['session_id'] = str(game['_id'])
+                # Remove _id as it's not part of GameState
+                game.pop('_id')
+                if game.get('messages'):
+                    game['messages'] = [GameMessage.from_dict(msg) for msg in game['messages']]
+                game_state = GameState(**game)
+                logger.info(f"Retrieved game {session_id} with {len(game_state.messages)} messages")
+                return game_state
+            logger.error(f"Game {session_id} not found")
+            raise HTTPException(status_code=404, detail=f"Game {session_id} not found")
+        except Exception as e:
+            logger.error(f"Error retrieving game {session_id}: {str(e)}")
+            raise HTTPException(status_code=404, detail=f"Error retrieving game: {str(e)}")
+
+    async def update_game(self, game_state: GameState) -> bool:
+        game_dict = asdict(game_state)
+        # Set _id for MongoDB
+        game_dict['_id'] = ObjectId(game_state.session_id)
+        result = self.games.replace_one(
+            {"_id": ObjectId(game_state.session_id)},
+            game_dict
+        )
+        logger.info(f"Updated game {game_state.session_id} with {len(game_state.messages)} messages")
+        return result.modified_count > 0
+
+    def close(self):
+        self.client.close()
+
+    def close(self):
+        self.client.close()
+
+@app.on_event("startup")
+def startup_db_client():
+    app.mongodb = MongoGameStore()
+    logger.info("Created mongo db connection")
+
+@app.on_event("shutdown")
+def shutdown_db_client():
+    app.mongodb.close()
+    logger.info("Closed mongodb connection")
+
 async def call_openrouter_api(messages: List[dict]) -> str:
     """Call OpenRouter API to get AI response"""
     headers = {
@@ -89,8 +161,9 @@ async def call_openrouter_api(messages: List[dict]) -> str:
         "model": "anthropic/claude-sonnet-4",  # Using a good model for reasoning
         "messages": messages,
         "max_tokens": 300,
-        "temperature": 0.7
+        "temperature": 0.
     }
+    logger.info(f"Calling with {messages}")
     
     async with httpx.AsyncClient() as client:
         try:
@@ -129,14 +202,14 @@ def get_ai_decision_prompt(game_state: GameState, proposal: int, human_message: 
 
 In each round, one player proposes how to split 10 points, and the other decides whether to accept or reject. If rejected, both get 0 points for that round.
 
+Game history:
+{history}
+
 Current situation:
 - Round {game_state.current_round} of 6
 - Current scores: Human {game_state.human_score}, AI {game_state.ai_score}
 - Human proposed: {proposal} points for human, {10-proposal} points for you
 - Human's message: "{human_message}"
-
-Game history:
-{history}
 
 You must respond with EXACTLY this format:
 DECISION: [ACCEPT or REJECT]
@@ -183,18 +256,13 @@ async def root():
 @app.post("/api/new-game")
 async def new_game():
     """Start a new game session"""
-    import uuid
-    session_id = str(uuid.uuid4())
-    game_sessions[session_id] = GameState(session_id=session_id)
+    session_id = await app.mongodb.create_game()
     return {"session_id": session_id}
 
 @app.get("/api/game/{session_id}")
 async def get_game_state(session_id: str):
     """Get current game state"""
-    if session_id not in game_sessions:
-        raise HTTPException(status_code=404, detail="Game session not found")
-    
-    game_state = game_sessions[session_id]
+    game_state = await app.mongodb.get_game(session_id)
     winner = None
     if game_state.game_over:
         if game_state.human_score > game_state.ai_score:
@@ -204,12 +272,15 @@ async def get_game_state(session_id: str):
         else:
             winner = "tie"
     
+    # Convert messages to dicts before creating response
+    messages_dict = [asdict(msg) for msg in game_state.messages] if game_state.messages else []
+    
     return GameStateResponse(
         session_id=session_id,
         current_round=game_state.current_round,
         human_score=game_state.human_score,
         ai_score=game_state.ai_score,
-        messages=[asdict(msg) for msg in game_state.messages],
+        messages=messages_dict,
         game_over=game_state.game_over,
         winner=winner
     )
@@ -217,10 +288,8 @@ async def get_game_state(session_id: str):
 @app.post("/api/propose")
 async def make_proposal(request: ProposalRequest):
     """Human player makes a proposal"""
-    if request.session_id not in game_sessions:
-        raise HTTPException(status_code=404, detail="Game session not found")
     
-    game_state = game_sessions[request.session_id]
+    game_state = await app.mongodb.get_game(request.session_id)
     
     if game_state.game_over:
         raise HTTPException(status_code=400, detail="Game is already over")
@@ -239,6 +308,7 @@ async def make_proposal(request: ProposalRequest):
         proposal=request.human_points,
         message=request.message
     ))
+    await app.mongodb.update_game(game_state)
     
     # Get AI decision
     ai_response = await call_openrouter_api(
@@ -280,16 +350,15 @@ async def make_proposal(request: ProposalRequest):
         game_state.game_over = True
     else:
         game_state.current_round += 1
+    await app.mongodb.update_game(game_state)
     
     return await get_game_state(request.session_id)
 
 @app.post("/api/decide")
 async def make_decision(request: DecisionRequest):
     """Human player makes a decision on AI proposal"""
-    if request.session_id not in game_sessions:
-        raise HTTPException(status_code=404, detail="Game session not found")
     
-    game_state = game_sessions[request.session_id]
+    game_state = await app.mongodb.get_game(request.session_id)
     
     if game_state.game_over:
         raise HTTPException(status_code=400, detail="Game is already over")
@@ -322,16 +391,15 @@ async def make_decision(request: DecisionRequest):
         game_state.game_over = True
     else:
         game_state.current_round += 1
+    await app.mongodb.update_game(game_state)
     
     return await get_game_state(request.session_id)
 
 @app.post("/api/ai-propose/{session_id}")
 async def ai_propose(session_id: str):
     """AI makes a proposal (called after human decision or at start of AI turn)"""
-    if session_id not in game_sessions:
-        raise HTTPException(status_code=404, detail="Game session not found")
+    game_state = await app.mongodb.get_game(session_id)
     
-    game_state = game_sessions[session_id]
     
     if game_state.game_over:
         raise HTTPException(status_code=400, detail="Game is already over")
@@ -342,23 +410,16 @@ async def ai_propose(session_id: str):
     # Parse AI response
     lines = ai_response.strip().split('\n')
     ai_proposal = None
-    ai_message = ""
+    ai_message = None
     
     for line in lines:
         if line.startswith("PROPOSAL:"):
-            try:
-                proposal_text = line.replace("PROPOSAL:", "").strip()
-                ai_proposal = int(proposal_text)
-                if not 0 <= ai_proposal <= 10:
-                    ai_proposal = 5  # Default to fair split
-            except:
-                ai_proposal = 5  # Default to fair split
+            proposal_text = line.replace("PROPOSAL:", "").strip()
+            ai_proposal = int(proposal_text)
+            if not 0 <= ai_proposal <= 10:
+                    raise RuntimeError
         elif line.startswith("MESSAGE:"):
             ai_message = line.replace("MESSAGE:", "").strip()[:256]
-    
-    if ai_proposal is None:
-        ai_proposal = 5  # Default to fair split
-        ai_message = "I propose a fair split."
     
     # Add AI proposal
     game_state.messages.append(GameMessage(
@@ -368,6 +429,7 @@ async def ai_propose(session_id: str):
         proposal=ai_proposal,
         message=ai_message
     ))
+    await app.mongodb.update_game(game_state)
     
     return await get_game_state(session_id)
 
