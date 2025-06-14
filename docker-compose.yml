@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   backend:
     build: ./backend
@@ -8,7 +7,7 @@ services:
       - localnet
     command: uvicorn main:app --reload --workers 1 --host 0.0.0.0 --port 8000
     depends_on:
-      - db
+      - mongodb
     restart: always
 
   frontend:
@@ -37,16 +36,16 @@ services:
     networks:
       - localnet
       - nginx-proxy
+    #ports:
+    #  - 127.0.0.1:3000:80
     restart: always
 
-  db:
-    image: postgres:15
-    environment:
-      POSTGRES_HOST_AUTH_METHOD: trust
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+  mongodb:
+    image: mongo:latest
     networks:
       - localnet
+    volumes:
+      - mongodb_data:/data/db
     restart: always
 
 networks:
@@ -55,4 +54,4 @@ networks:
     external: true
 
 volumes:
-  postgres_data:
+  mongodb_data:
