@@ -48,6 +48,18 @@ services:
       - mongodb_data:/data/db
     restart: always
 
+  mongo-express:
+    image: mongo-express:latest
+    networks:
+      - localnet
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017
+      ME_CONFIG_BASICAUTH: "false"
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+    ports:
+      - "127.0.0.1:4000:8081"
+    restart: always
+
 networks:
   localnet:
   nginx-proxy:
