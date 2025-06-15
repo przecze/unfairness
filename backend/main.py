@@ -1,9 +1,9 @@
 import os
 import json
 import httpx
-from typing import List, Optional
+from typing import List, Optional, Annotated, Union
 from dataclasses import dataclass, asdict
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -13,6 +13,7 @@ from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from bson import ObjectId
 from typing import Optional
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -48,6 +49,7 @@ class GameMessage:
     proposal: Optional[int] = None  # Points for human player (out of 10)
     decision: Optional[bool] = None  # Accept (True) or Reject (False)
     message: str = ""
+    timestamp: Optional[str] = None
     @classmethod
     def from_dict(cls, data: dict):
         return cls(**data)
@@ -60,6 +62,9 @@ class GameState:
     ai_score: int = 0
     messages: List[GameMessage] = None
     game_over: bool = False
+    ip_address: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
     
     def __post_init__(self):
         if self.messages is None:
@@ -96,9 +101,13 @@ class MongoGameStore:
         self.client.admin.command('ping')
         logger.info("Successfully connected to MongoDB!")
 
-    async def create_game(self) -> str:
+    async def create_game(self, ip_address: Optional[str] = None) -> str:
         session_id = str(ObjectId())
-        game_state = GameState(session_id=session_id)
+        game_state = GameState(
+            session_id=session_id,
+            ip_address=ip_address,
+            created_at=datetime.utcnow().isoformat()
+        )
         # Convert to dict and explicitly set _id
         game_dict = asdict(game_state)
         game_dict['_id'] = ObjectId(session_id)  # Use the same ID for both _id and session_id
@@ -254,9 +263,9 @@ async def root():
     return {"message": "TrustMeClaude Backend is running!", "api_configured": True}
 
 @app.post("/api/new-game")
-async def new_game():
+async def new_game(x_real_ip: Annotated[Union[str, None], Header()] = None):
     """Start a new game session"""
-    session_id = await app.mongodb.create_game()
+    session_id = await app.mongodb.create_game(ip_address=x_real_ip)
     return {"session_id": session_id}
 
 @app.get("/api/game/{session_id}")
@@ -306,8 +315,12 @@ async def make_proposal(request: ProposalRequest):
         player="human",
         role="proposer",
         proposal=request.human_points,
-        message=request.message
+        message=request.message,
+        timestamp=datetime.utcnow().isoformat()
     ))
+    
+    # Update game timestamp
+    game_state.updated_at = datetime.utcnow().isoformat()
     await app.mongodb.update_game(game_state)
     
     # Get AI decision
@@ -337,7 +350,8 @@ async def make_proposal(request: ProposalRequest):
         player="ai",
         role="decider",
         decision=ai_decision,
-        message=ai_message
+        message=ai_message,
+        timestamp=datetime.utcnow().isoformat()
     ))
     
     # Update scores if accepted
@@ -350,6 +364,9 @@ async def make_proposal(request: ProposalRequest):
         game_state.game_over = True
     else:
         game_state.current_round += 1
+    
+    # Update game timestamp
+    game_state.updated_at = datetime.utcnow().isoformat()
     await app.mongodb.update_game(game_state)
     
     return await get_game_state(request.session_id)
@@ -378,7 +395,8 @@ async def make_decision(request: DecisionRequest):
         player="human",
         role="decider",
         decision=request.accept,
-        message=request.message
+        message=request.message,
+        timestamp=datetime.utcnow().isoformat()
     ))
     
     # Update scores if accepted
@@ -391,6 +409,9 @@ async def make_decision(request: DecisionRequest):
         game_state.game_over = True
     else:
         game_state.current_round += 1
+    
+    # Update game timestamp
+    game_state.updated_at = datetime.utcnow().isoformat()
     await app.mongodb.update_game(game_state)
     
     return await get_game_state(request.session_id)
@@ -399,7 +420,6 @@ async def make_decision(request: DecisionRequest):
 async def ai_propose(session_id: str):
     """AI makes a proposal (called after human decision or at start of AI turn)"""
     game_state = await app.mongodb.get_game(session_id)
-    
     
     if game_state.game_over:
         raise HTTPException(status_code=400, detail="Game is already over")
@@ -427,8 +447,12 @@ async def ai_propose(session_id: str):
         player="ai",
         role="proposer",
         proposal=ai_proposal,
-        message=ai_message
+        message=ai_message,
+        timestamp=datetime.utcnow().isoformat()
     ))
+    
+    # Update game timestamp
+    game_state.updated_at = datetime.utcnow().isoformat()
     await app.mongodb.update_game(game_state)
     
     return await get_game_state(session_id)
