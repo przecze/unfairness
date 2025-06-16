@@ -65,12 +65,16 @@ class GameState:
     ip_address: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    player_name: Optional[str] = None
     
     def __post_init__(self):
         if self.messages is None:
             self.messages = []
 
 # Pydantic models for API
+class NewGameRequest(BaseModel):
+    player_name: Optional[str] = None
+
 class ProposalRequest(BaseModel):
     session_id: str
     human_points: int  # Points for human (0-10)
@@ -90,6 +94,9 @@ class GameStateResponse(BaseModel):
     game_over: bool
     winner: Optional[str] = None
 
+class UpdateGameRequest(BaseModel):
+    player_name: Optional[str] = None
+
 class MongoGameStore:
     def __init__(self):
         mongodb_url = "mongodb://mongodb:27017/trustmeclaude"
@@ -101,12 +108,13 @@ class MongoGameStore:
         self.client.admin.command('ping')
         logger.info("Successfully connected to MongoDB!")
 
-    async def create_game(self, ip_address: Optional[str] = None) -> str:
+    async def create_game(self, ip_address: Optional[str] = None, player_name: Optional[str] = None) -> str:
         session_id = str(ObjectId())
         game_state = GameState(
             session_id=session_id,
             ip_address=ip_address,
-            created_at=datetime.utcnow().isoformat()
+            created_at=datetime.utcnow().isoformat(),
+            player_name=player_name
         )
         # Convert to dict and explicitly set _id
         game_dict = asdict(game_state)
@@ -263,9 +271,9 @@ async def root():
     return {"message": "TrustMeClaude Backend is running!", "api_configured": True}
 
 @app.post("/api/new-game")
-async def new_game(x_real_ip: Annotated[Union[str, None], Header()] = None):
+async def new_game(request: NewGameRequest, x_real_ip: Annotated[Union[str, None], Header()] = None):
     """Start a new game session"""
-    session_id = await app.mongodb.create_game(ip_address=x_real_ip)
+    session_id = await app.mongodb.create_game(ip_address=x_real_ip, player_name=request.player_name)
     return {"session_id": session_id}
 
 @app.get("/api/game/{session_id}")
@@ -454,6 +462,18 @@ async def ai_propose(session_id: str):
     # Update game timestamp
     game_state.updated_at = datetime.utcnow().isoformat()
     await app.mongodb.update_game(game_state)
+    
+    return await get_game_state(session_id)
+
+@app.patch("/api/game/{session_id}")
+async def update_game(session_id: str, request: UpdateGameRequest):
+    """Update game state"""
+    game_state = await app.mongodb.get_game(session_id)
+    
+    if request.player_name is not None:
+        game_state.player_name = request.player_name
+        game_state.updated_at = datetime.utcnow().isoformat()
+        await app.mongodb.update_game(game_state)
     
     return await get_game_state(session_id)
 

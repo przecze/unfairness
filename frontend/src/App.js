@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const API_BASE = '/api';
+const STORAGE_KEY = 'trustmeclaude_player_name';
 
 // Debug logging
 console.log('NODE_ENV:', process.env.NODE_ENV);
@@ -11,11 +12,35 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showNameDialog, setShowNameDialog] = useState(false);
+  const [playerName, setPlayerName] = useState('');
   
   // Form states
   const [proposalPoints, setProposalPoints] = useState(5);
   const [proposalMessage, setProposalMessage] = useState('');
   const [decisionMessage, setDecisionMessage] = useState('');
+
+  // Load saved name from localStorage on component mount
+  useEffect(() => {
+    const savedName = localStorage.getItem(STORAGE_KEY);
+    if (savedName) {
+      setPlayerName(savedName);
+    }
+  }, []);
+
+  // Check if player is a winner
+  const isWinner = (state) => {
+    if (!state) return false;
+    return state.human_score > 30 || (state.human_score - state.ai_score) > 10;
+  };
+
+  // Debug trigger for name dialog
+  const handleScoreClick = (e) => {
+    if (e.shiftKey && (e.metaKey || e.ctrlKey)) {  // metaKey is Command on Mac
+      e.preventDefault();
+      setShowNameDialog(true);
+    }
+  };
 
   const startNewGame = async () => {
     setLoading(true);
@@ -23,13 +48,37 @@ function App() {
     try {
       const response = await fetch(`${API_BASE}/new-game`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_name: playerName })
       });
       const data = await response.json();
       setSessionId(data.session_id);
       await fetchGameState(data.session_id);
     } catch (err) {
       setError('Failed to start new game: ' + err.message);
+    }
+    setLoading(false);
+  };
+
+  const submitPlayerName = async () => {
+    if (!playerName.trim()) return;
+    
+    setLoading(true);
+    try {
+      // Save name to localStorage
+      localStorage.setItem(STORAGE_KEY, playerName);
+      
+      // Update game state with name
+      const response = await fetch(`${API_BASE}/game/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_name: playerName })
+      });
+      const data = await response.json();
+      setGameState(data);
+      setShowNameDialog(false);
+    } catch (err) {
+      setError('Failed to save name: ' + err.message);
     }
     setLoading(false);
   };
@@ -145,6 +194,13 @@ function App() {
 
   const phase = getCurrentPhase();
 
+  // Check for winner after game state updates
+  useEffect(() => {
+    if (gameState?.game_over && isWinner(gameState) && !gameState.player_name && !showNameDialog) {
+      setShowNameDialog(true);
+    }
+  }, [gameState]);
+
   return (
     <div style={{ 
       minHeight: '100vh',
@@ -213,8 +269,11 @@ function App() {
               background: '#f5f5f5',
               padding: '1rem',
               borderRadius: '8px',
-              marginBottom: '2rem'
-            }}>
+              marginBottom: '2rem',
+              cursor: 'pointer'
+            }}
+            onClick={handleScoreClick}
+            title="Hold Shift+⌘/Ctrl and click to test name dialog">
               <div>
                 <strong>Round {gameState.current_round}/6</strong>
               </div>
@@ -416,6 +475,71 @@ function App() {
               </div>
             )}
           </>
+        )}
+
+        {showNameDialog && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '2rem',
+              borderRadius: '12px',
+              maxWidth: '500px',
+              width: '90%'
+            }}>
+              <h2>🎉 Congratulations! You Won! 🎉</h2>
+              <p>Enter your name to be added to the leaderboard:</p>
+              <input
+                type="text"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                placeholder="Your name"
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  margin: '1rem 0',
+                  borderRadius: '4px',
+                  border: '1px solid #ccc'
+                }}
+              />
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setShowNameDialog(false)}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    border: '1px solid #ccc',
+                    background: '#f5f5f5'
+                  }}
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={submitPlayerName}
+                  disabled={!playerName.trim() || loading}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: '#4caf50',
+                    color: 'white'
+                  }}
+                >
+                  {loading ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
