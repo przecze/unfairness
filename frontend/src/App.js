@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const API_BASE = '/api';
 const STORAGE_KEY = 'trustmeclaude_player_name';
@@ -95,7 +95,7 @@ function App() {
     scrollToBottom();
   }, [gameState?.messages]);
 
-  const fetchLeaderboard = useCallback(async () => {
+  const fetchLeaderboard = async () => {
     try {
       const response = await fetch(
         `${API_BASE}/leaderboard?sort_by=${leaderboardSort}&page=${leaderboardPage}&page_size=10`
@@ -106,7 +106,7 @@ function App() {
     } catch (err) {
       console.error('Failed to fetch leaderboard:', err);
     }
-  }, [leaderboardSort, leaderboardPage]);
+  };
 
   // Load saved name from localStorage on component mount
   useEffect(() => {
@@ -116,14 +116,14 @@ function App() {
     }
     // Fetch leaderboard on initial load
     fetchLeaderboard();
-  }, [fetchLeaderboard]);
+  }, []);
 
   // Fetch leaderboard when game is over, sort changes, or page changes
   useEffect(() => {
     if (gameState?.game_over || leaderboardSort || leaderboardPage) {
       fetchLeaderboard();
     }
-  }, [gameState?.game_over, leaderboardSort, leaderboardPage, fetchLeaderboard]);
+  }, [gameState?.game_over, leaderboardSort, leaderboardPage]);
 
   // Check if player is a winner
   const isWinner = (state) => {
@@ -219,7 +219,8 @@ function App() {
       player: 'human',
       proposal: proposalPoints,
       message: proposalMessage,
-      round_num: gameState.current_round
+      round_num: gameState.current_round,
+      role: 'proposer'  // Add role to distinguish from decision
     };
 
     // Update game state immediately with the proposal
@@ -313,10 +314,10 @@ function App() {
     // Odd rounds: Human proposes, AI decides
     if (gameState.current_round % 2 === 1) {
       // Odd round - human proposes first
-      if (lastMessage.player === 'human' && lastMessage.proposal !== null) {
-        return 'waiting_ai_decision';
+      if (!lastMessage || lastMessage.role === 'decider') {
+        return 'human_propose';
       }
-      return 'human_propose';
+      return 'waiting_ai_decision';
     } else {
       // Even round - AI proposes first
       if (!lastMessage || lastMessage.role === 'decider') {
@@ -476,6 +477,12 @@ function App() {
               You will play the <strong>ultimatum game</strong> with an AI over <strong>6 rounds</strong> ⚖️. (10 points per round)
             </p>
             <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
+              In <strong>ultimatum game</strong> one player proposes how to split 10 points between them and the other player.
+              The other player can accept or reject the proposal.
+              If proposal is rejected, both players get 0 points. (read more on <a href="https://en.wikipedia.org/wiki/Ultimatum_game" target="_blank" style={{textDecoration: 'none'}}>Wikipedia</a>)
+              You and AI will take turns proposing and deciding, with you going first.
+            </p>
+            <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
               Final fair split is <strong>30 points for you</strong> and <strong>30 points for AI</strong> - but can you finish with a <strong>bigger slice of the pie</strong> 🍰?
             </p>
             <button 
@@ -590,17 +597,17 @@ function App() {
                         <div style={{
                           margin: '0.5rem 0',
                           padding: '0.5rem',
-                          background: msg.player === 'human' ? '#e3f2fd' : '#fff3e0',
+                          background: msg.player === 'human' ? '#e3f5fd' : '#fff3e0',
                           borderRadius: '4px',
                           borderLeft: `4px solid ${msg.player === 'human' ? '#2196f3' : '#ff9800'}`
                         }}>
                           <strong>
                             {msg.player === 'human' ? 'You' : 'AI'}:
                           </strong>
-                          {msg.proposal !== null && (
+                          {msg.role === 'proposer' && msg.proposal !== null && (
                             <span> Proposed {msg.proposal} points for you, {10 - msg.proposal} points for AI</span>
                           )}
-                          {msg.decision !== null && (
+                          {msg.role === 'decider' && msg.decision !== null && (
                             <span> {msg.decision ? 'Accepted ✅' : 'Rejected ❌'}</span>
                           )}
                           {msg.message && (
@@ -662,7 +669,7 @@ function App() {
                         cursor: 'pointer'
                       }}
                     >
-                      {loading ? 'Sending...' : 'Make Proposal'}
+                      {loading ? 'Proposing...' : 'Make Proposal'}
                     </button>
                   </div>
                 )}
