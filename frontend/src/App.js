@@ -116,6 +116,7 @@ function App() {
     }
     // Fetch leaderboard on initial load
     fetchLeaderboard();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch leaderboard when game is over, sort changes, or page changes
@@ -123,6 +124,7 @@ function App() {
     if (gameState?.game_over || leaderboardSort || leaderboardPage) {
       fetchLeaderboard();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState?.game_over, leaderboardSort, leaderboardPage]);
 
   // Check if player is a winner
@@ -479,7 +481,7 @@ function App() {
             <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
               In <strong>ultimatum game</strong> one player proposes how to split 10 points between them and the other player.
               The other player can accept or reject the proposal.
-              If proposal is rejected, both players get 0 points. (read more on <a href="https://en.wikipedia.org/wiki/Ultimatum_game" target="_blank" style={{textDecoration: 'none'}}>Wikipedia</a>)
+              If proposal is rejected, both players get 0 points. (read more on <a href="https://en.wikipedia.org/wiki/Ultimatum_game" target="_blank" rel="noreferrer" style={{textDecoration: 'none'}}>Wikipedia</a>)
               You and AI will take turns proposing and deciding, with you going first.
             </p>
             <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
