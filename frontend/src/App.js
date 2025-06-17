@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 const API_BASE = '/api';
 const STORAGE_KEY = 'trustmeclaude_player_name';
@@ -77,7 +77,6 @@ function App() {
   const [leaderboardSort, setLeaderboardSort] = useState('score');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [leaderboardTotalPages, setLeaderboardTotalPages] = useState(1);
-  const [leaderboardTotalEntries, setLeaderboardTotalEntries] = useState(0);
   
   // Form states
   const [proposalPoints, setProposalPoints] = useState(5);
@@ -96,19 +95,18 @@ function App() {
     scrollToBottom();
   }, [gameState?.messages]);
 
-  const numberToHieroglyphs = (num) => {
-    if (num === 0) return '❌';
-    if (num === 1) return '𓃉';
-    if (num === 2) return '𓃊';
-    if (num === 3) return '𓃊𓃉';
-    if (num === 4) return '𓃌';
-    if (num === 5) return '𓃌𓃉';
-    if (num === 6) return '𓃌𓃊';
-    if (num === 7) return '𓃌𓃊𓃉';
-    if (num === 8) return '𓃌𓃌';
-    if (num === 9) return '𓃌𓃌𓃉';
-    return '𓃌𓃌𓃊';  // 10
-  };
+  const fetchLeaderboard = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/leaderboard?sort_by=${leaderboardSort}&page=${leaderboardPage}&page_size=10`
+      );
+      const data = await response.json();
+      setLeaderboard(data.entries);
+      setLeaderboardTotalPages(data.total_pages);
+    } catch (err) {
+      console.error('Failed to fetch leaderboard:', err);
+    }
+  }, [leaderboardSort, leaderboardPage]);
 
   // Load saved name from localStorage on component mount
   useEffect(() => {
@@ -118,28 +116,14 @@ function App() {
     }
     // Fetch leaderboard on initial load
     fetchLeaderboard();
-  }, []);
+  }, [fetchLeaderboard]);
 
   // Fetch leaderboard when game is over, sort changes, or page changes
   useEffect(() => {
     if (gameState?.game_over || leaderboardSort || leaderboardPage) {
       fetchLeaderboard();
     }
-  }, [gameState?.game_over, leaderboardSort, leaderboardPage]);
-
-  const fetchLeaderboard = async () => {
-    try {
-      const response = await fetch(
-        `${API_BASE}/leaderboard?sort_by=${leaderboardSort}&page=${leaderboardPage}&page_size=10`
-      );
-      const data = await response.json();
-      setLeaderboard(data.entries);
-      setLeaderboardTotalPages(data.total_pages);
-      setLeaderboardTotalEntries(data.total_entries);
-    } catch (err) {
-      console.error('Failed to fetch leaderboard:', err);
-    }
-  };
+  }, [gameState?.game_over, leaderboardSort, leaderboardPage, fetchLeaderboard]);
 
   // Check if player is a winner
   const isWinner = (state) => {
@@ -173,31 +157,12 @@ function App() {
     setLoading(false);
   };
 
-  const validatePlayerName = (name) => {
-    if (!name) return false;
-    // Match backend validation: alphanumeric, spaces, and basic punctuation
-    return /^[a-zA-Z0-9\s.,!?-]+$/.test(name);
+  const handleProposalMessageChange = (e) => {
+    setProposalMessage(e.target.value.slice(0, 256));
   };
 
-  const validateMessage = (message) => {
-    if (!message) return true; // Empty messages are allowed
-    // Match backend validation: alphanumeric, spaces, and basic punctuation
-    return /^[a-zA-Z0-9\s.,!?-]+$/.test(message);
-  };
-
-  const sanitizeWhitespace = (text) => {
-    return text
-      .trim()  // Remove leading/trailing whitespace
-      .replace(/\s+/g, ' ');  // Normalize all whitespace to single space
-  };
-
-  const handlePlayerNameChange = (e) => {
-    const value = e.target.value;
-    // Only update if the new value doesn't start with whitespace
-    // or if we're removing characters (backspace/delete)
-    if (!value || !value.startsWith(' ')) {
-      setPlayerName(value);
-    }
+  const handleDecisionMessageChange = (e) => {
+    setDecisionMessage(e.target.value.slice(0, 256));
   };
 
   const handlePlayerNameKeyPress = (e) => {
@@ -205,14 +170,6 @@ function App() {
     if (e.key === ' ' && !playerName) {
       e.preventDefault();
     }
-  };
-
-  const handleProposalMessageChange = (e) => {
-    setProposalMessage(e.target.value.slice(0, 256));
-  };
-
-  const handleDecisionMessageChange = (e) => {
-    setDecisionMessage(e.target.value.slice(0, 256));
   };
 
   const submitPlayerName = async () => {
@@ -256,6 +213,21 @@ function App() {
     
     setLoading(true);
     setError('');
+
+    // Create a temporary message for immediate display
+    const tempMessage = {
+      player: 'human',
+      proposal: proposalPoints,
+      message: proposalMessage,
+      round_num: gameState.current_round
+    };
+
+    // Update game state immediately with the proposal
+    setGameState(prev => ({
+      ...prev,
+      messages: [...prev.messages, tempMessage]
+    }));
+
     try {
       const response = await fetch(`${API_BASE}/propose`, {
         method: 'POST',
@@ -276,6 +248,11 @@ function App() {
       }
     } catch (err) {
       setError('Failed to make proposal: ' + err.message);
+      // Remove the temporary message if the request failed
+      setGameState(prev => ({
+        ...prev,
+        messages: prev.messages.filter(m => m !== tempMessage)
+      }));
     }
     setLoading(false);
   };
@@ -336,10 +313,10 @@ function App() {
     // Odd rounds: Human proposes, AI decides
     if (gameState.current_round % 2 === 1) {
       // Odd round - human proposes first
-      if (!lastMessage || lastMessage.role === 'decider') {
-        return 'human_propose';
+      if (lastMessage.player === 'human' && lastMessage.proposal !== null) {
+        return 'waiting_ai_decision';
       }
-      return 'waiting_ai_decision';
+      return 'human_propose';
     } else {
       // Even round - AI proposes first
       if (!lastMessage || lastMessage.role === 'decider') {
@@ -358,7 +335,7 @@ function App() {
     if (gameState?.game_over && isWinner(gameState) && !gameState.player_name && !showNameDialog) {
       setShowNameDialog(true);
     }
-  }, [gameState]);
+  }, [gameState, showNameDialog]);
 
   const LeaderboardControls = ({ isPreview = false }) => (
     <div style={{
@@ -621,7 +598,7 @@ function App() {
                             {msg.player === 'human' ? 'You' : 'AI'}:
                           </strong>
                           {msg.proposal !== null && (
-                            <span> Proposed {numberToHieroglyphs(msg.proposal)} ({msg.proposal}) for you, {numberToHieroglyphs(10 - msg.proposal)} ({10 - msg.proposal}) for AI</span>
+                            <span> Proposed {msg.proposal} points for you, {10 - msg.proposal} points for AI</span>
                           )}
                           {msg.decision !== null && (
                             <span> {msg.decision ? 'Accepted ✅' : 'Rejected ❌'}</span>
@@ -685,7 +662,7 @@ function App() {
                         cursor: 'pointer'
                       }}
                     >
-                      {loading ? 'Proposing...' : 'Make Proposal'}
+                      {loading ? 'Sending...' : 'Make Proposal'}
                     </button>
                   </div>
                 )}
