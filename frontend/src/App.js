@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const API_BASE = '/api';
 const STORAGE_KEY = 'trustmeclaude_player_name';
@@ -7,6 +7,64 @@ const STORAGE_KEY = 'trustmeclaude_player_name';
 console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('API_BASE:', API_BASE);
 
+function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score' }) {
+  return (
+    <div style={{
+      maxHeight,
+      overflowY: 'auto',
+      marginTop: '1rem'
+    }}>
+      <table style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        textAlign: 'left'
+      }}>
+        <thead>
+          <tr style={{
+            borderBottom: '2px solid #ddd',
+            background: '#e8e8e8'
+          }}>
+            <th style={{ padding: '0.75rem' }}>Rank</th>
+            <th style={{ padding: '0.75rem' }}>Player</th>
+            {sortBy === 'difference' && (
+              <th style={{ padding: '0.75rem' }}>Diff</th>
+            )}
+            <th style={{ padding: '0.75rem' }}>Score</th>
+            <th style={{ padding: '0.75rem' }}>AI Score</th>
+            {sortBy === 'score' && (
+              <th style={{ padding: '0.75rem' }}>Diff</th>
+            )}
+            <th style={{ padding: '0.75rem' }}>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry, index) => (
+            <tr key={index} style={{
+              borderBottom: '1px solid #ddd',
+              background: index === 0 ? '#fff3e0' : index % 2 === 0 ? '#fff' : '#f9f9f9',
+              fontWeight: index === 0 ? 'bold' : 'normal'
+            }}>
+              <td style={{ padding: '0.75rem' }}>{index + 1}</td>
+              <td style={{ padding: '0.75rem' }}>{entry.player_name}</td>
+              {sortBy === 'difference' && (
+                <td style={{ padding: '0.75rem' }}>{entry.human_score - entry.ai_score}</td>
+              )}
+              <td style={{ padding: '0.75rem' }}>{entry.human_score}</td>
+              <td style={{ padding: '0.75rem' }}>{entry.ai_score}</td>
+              {sortBy === 'score' && (
+                <td style={{ padding: '0.75rem' }}>{entry.human_score - entry.ai_score}</td>
+              )}
+              <td style={{ padding: '0.75rem' }}>
+                {new Date(entry.created_at).toLocaleDateString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function App() {
   const [gameState, setGameState] = useState(null);
   const [sessionId, setSessionId] = useState(null);
@@ -14,19 +72,74 @@ function App() {
   const [error, setError] = useState('');
   const [showNameDialog, setShowNameDialog] = useState(false);
   const [playerName, setPlayerName] = useState('');
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [showFullLeaderboard, setShowFullLeaderboard] = useState(false);
+  const [leaderboardSort, setLeaderboardSort] = useState('score');
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [leaderboardTotalPages, setLeaderboardTotalPages] = useState(1);
+  const [leaderboardTotalEntries, setLeaderboardTotalEntries] = useState(0);
   
   // Form states
   const [proposalPoints, setProposalPoints] = useState(5);
   const [proposalMessage, setProposalMessage] = useState('');
   const [decisionMessage, setDecisionMessage] = useState('');
 
+  // Add ref for scrolling
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [gameState?.messages]);
+
+  const numberToHieroglyphs = (num) => {
+    if (num === 0) return '❌';
+    if (num === 1) return '𓃉';
+    if (num === 2) return '𓃊';
+    if (num === 3) return '𓃊𓃉';
+    if (num === 4) return '𓃌';
+    if (num === 5) return '𓃌𓃉';
+    if (num === 6) return '𓃌𓃊';
+    if (num === 7) return '𓃌𓃊𓃉';
+    if (num === 8) return '𓃌𓃌';
+    if (num === 9) return '𓃌𓃌𓃉';
+    return '𓃌𓃌𓃊';  // 10
+  };
+
   // Load saved name from localStorage on component mount
   useEffect(() => {
     const savedName = localStorage.getItem(STORAGE_KEY);
     if (savedName) {
-      setPlayerName(savedName);
+      setPlayerName(savedName.trim());
     }
+    // Fetch leaderboard on initial load
+    fetchLeaderboard();
   }, []);
+
+  // Fetch leaderboard when game is over, sort changes, or page changes
+  useEffect(() => {
+    if (gameState?.game_over || leaderboardSort || leaderboardPage) {
+      fetchLeaderboard();
+    }
+  }, [gameState?.game_over, leaderboardSort, leaderboardPage]);
+
+  const fetchLeaderboard = async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/leaderboard?sort_by=${leaderboardSort}&page=${leaderboardPage}&page_size=10`
+      );
+      const data = await response.json();
+      setLeaderboard(data.entries);
+      setLeaderboardTotalPages(data.total_pages);
+      setLeaderboardTotalEntries(data.total_entries);
+    } catch (err) {
+      console.error('Failed to fetch leaderboard:', err);
+    }
+  };
 
   // Check if player is a winner
   const isWinner = (state) => {
@@ -49,7 +162,7 @@ function App() {
       const response = await fetch(`${API_BASE}/new-game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_name: playerName })
+        body: JSON.stringify({ player_name: playerName?.trim() || null })
       });
       const data = await response.json();
       setSessionId(data.session_id);
@@ -60,27 +173,71 @@ function App() {
     setLoading(false);
   };
 
+  const validatePlayerName = (name) => {
+    if (!name) return false;
+    // Match backend validation: alphanumeric, spaces, and basic punctuation
+    return /^[a-zA-Z0-9\s.,!?-]+$/.test(name);
+  };
+
+  const validateMessage = (message) => {
+    if (!message) return true; // Empty messages are allowed
+    // Match backend validation: alphanumeric, spaces, and basic punctuation
+    return /^[a-zA-Z0-9\s.,!?-]+$/.test(message);
+  };
+
+  const sanitizeWhitespace = (text) => {
+    return text
+      .trim()  // Remove leading/trailing whitespace
+      .replace(/\s+/g, ' ');  // Normalize all whitespace to single space
+  };
+
+  const handlePlayerNameChange = (e) => {
+    const value = e.target.value;
+    // Only update if the new value doesn't start with whitespace
+    // or if we're removing characters (backspace/delete)
+    if (!value || !value.startsWith(' ')) {
+      setPlayerName(value);
+    }
+  };
+
+  const handlePlayerNameKeyPress = (e) => {
+    // Prevent space if it would be the first character
+    if (e.key === ' ' && !playerName) {
+      e.preventDefault();
+    }
+  };
+
+  const handleProposalMessageChange = (e) => {
+    setProposalMessage(e.target.value.slice(0, 256));
+  };
+
+  const handleDecisionMessageChange = (e) => {
+    setDecisionMessage(e.target.value.slice(0, 256));
+  };
+
   const submitPlayerName = async () => {
-    if (!playerName.trim()) return;
+    const trimmedName = playerName.trim();
+    if (!trimmedName) return;
     
     setLoading(true);
     try {
       // Save name to localStorage
-      localStorage.setItem(STORAGE_KEY, playerName);
+      localStorage.setItem(STORAGE_KEY, trimmedName);
       
       // Update game state with name
       const response = await fetch(`${API_BASE}/game/${sessionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_name: playerName })
+        body: JSON.stringify({ player_name: trimmedName })
       });
       const data = await response.json();
       setGameState(data);
-      setShowNameDialog(false);
     } catch (err) {
       setError('Failed to save name: ' + err.message);
+    } finally {
+      setLoading(false);
+      setShowNameDialog(false);
     }
-    setLoading(false);
   };
 
   const fetchGameState = async (id = sessionId) => {
@@ -96,6 +253,7 @@ function App() {
 
   const makeProposal = async () => {
     if (!sessionId) return;
+    
     setLoading(true);
     setError('');
     try {
@@ -124,6 +282,7 @@ function App() {
 
   const makeDecision = async (accept) => {
     if (!sessionId) return;
+    
     setLoading(true);
     setError('');
     try {
@@ -201,10 +360,95 @@ function App() {
     }
   }, [gameState]);
 
+  const LeaderboardControls = ({ isPreview = false }) => (
+    <div style={{
+      display: 'flex',
+      gap: '1rem',
+      marginBottom: '1rem',
+      justifyContent: isPreview ? 'center' : 'flex-start',
+      flexDirection: 'column'
+    }}>
+      <div style={{ display: 'flex', gap: '1rem', justifyContent: isPreview ? 'center' : 'flex-start' }}>
+        <button
+          onClick={() => {
+            setLeaderboardSort('score');
+            setLeaderboardPage(1);
+          }}
+          style={{
+            background: leaderboardSort === 'score' ? '#667eea' : '#f5f5f5',
+            color: leaderboardSort === 'score' ? 'white' : '#333',
+            border: '1px solid #ddd',
+            padding: '0.5rem 1rem',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Top Human Scores
+        </button>
+        <button
+          onClick={() => {
+            setLeaderboardSort('difference');
+            setLeaderboardPage(1);
+          }}
+          style={{
+            background: leaderboardSort === 'difference' ? '#667eea' : '#f5f5f5',
+            color: leaderboardSort === 'difference' ? 'white' : '#333',
+            border: '1px solid #ddd',
+            padding: '0.5rem 1rem',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Top Human-AI Differences
+        </button>
+      </div>
+      {!isPreview && (
+        <div style={{ 
+          display: 'flex', 
+          gap: '0.5rem', 
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+          <button
+            onClick={() => setLeaderboardPage(p => Math.max(1, p - 1))}
+            disabled={leaderboardPage === 1}
+            style={{
+              background: '#f5f5f5',
+              border: '1px solid #ddd',
+              padding: '0.5rem 1rem',
+              borderRadius: '4px',
+              cursor: leaderboardPage === 1 ? 'not-allowed' : 'pointer',
+              opacity: leaderboardPage === 1 ? 0.5 : 1
+            }}
+          >
+            ←
+          </button>
+          <span style={{ minWidth: '100px', textAlign: 'center' }}>
+            Page {leaderboardPage} of {leaderboardTotalPages}
+          </span>
+          <button
+            onClick={() => setLeaderboardPage(p => Math.min(leaderboardTotalPages, p + 1))}
+            disabled={leaderboardPage === leaderboardTotalPages}
+            style={{
+              background: '#f5f5f5',
+              border: '1px solid #ddd',
+              padding: '0.5rem 1rem',
+              borderRadius: '4px',
+              cursor: leaderboardPage === leaderboardTotalPages ? 'not-allowed' : 'pointer',
+              opacity: leaderboardPage === leaderboardTotalPages ? 0.5 : 1
+            }}
+          >
+            →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div style={{ 
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(135deg, #2c3e50 0%, #1a1a2e 100%)',
       fontFamily: 'Arial, sans-serif',
       padding: '1rem'
     }}>
@@ -214,16 +458,25 @@ function App() {
         background: 'white',
         borderRadius: '12px',
         padding: '2rem',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.1)'
+        boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
       }}>
         <h1 style={{ 
           textAlign: 'center', 
-          color: '#333',
-          marginBottom: '2rem',
+          color: '#2c3e50',
+          marginBottom: '1rem',
           fontSize: '2.5rem'
         }}>
-          🤖 Trust Me, Claude 🤗
+          ⚖️️ Unfairness ⚔️
         </h1>
+        <p style={{ 
+          textAlign: 'center', 
+          color: '#666',
+          marginBottom: '2rem',
+          fontSize: '1.2rem',
+          fontStyle: 'italic'
+        }}>
+          Get your fair share from the AI. And then some.
+        </p>
         
         {error && (
           <div style={{
@@ -240,7 +493,13 @@ function App() {
         {!gameState ? (
           <div style={{ textAlign: 'center' }}>
             <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
-               Welcome to "Trust Me, Claude"! Play the ultimatum game against an AI over 6 rounds.
+              Welcome to <strong>Unfairness</strong>!
+            </p>
+            <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
+              You will play the <strong>ultimatum game</strong> with an AI over <strong>6 rounds</strong> ⚖️. (10 points per round)
+            </p>
+            <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>
+              Final fair split is <strong>30 points for you</strong> and <strong>30 points for AI</strong> - but can you finish with a <strong>bigger slice of the pie</strong> 🍰?
             </p>
             <button 
               onClick={startNewGame}
@@ -258,6 +517,36 @@ function App() {
             >
               {loading ? 'Starting...' : 'Start New Game'}
             </button>
+
+            {/* Top 4 Leaderboard Preview */}
+            {leaderboard.length > 0 && (
+              <div style={{ 
+                marginTop: '3rem',
+                background: '#f5f5f5',
+                padding: '1.5rem',
+                borderRadius: '8px',
+                maxWidth: '600px',
+                margin: '3rem auto 0'
+              }}>
+                <h2 style={{ marginBottom: '1rem' }}>👑 Top Players</h2>
+                <LeaderboardControls isPreview={true} />
+                <LeaderboardTable entries={leaderboard.slice(0, 4)} maxHeight="300px" sortBy={leaderboardSort} />
+                <button
+                  onClick={() => setShowFullLeaderboard(true)}
+                  style={{
+                    marginTop: '1rem',
+                    background: '#764ba2',
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  View Full Leaderboard
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -270,7 +559,8 @@ function App() {
               padding: '1rem',
               borderRadius: '8px',
               marginBottom: '2rem',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              position: 'relative'
             }}
             onClick={handleScoreClick}
             title="Hold Shift+⌘/Ctrl and click to test name dialog">
@@ -282,10 +572,10 @@ function App() {
               </div>
               {gameState.game_over && (
                 <div style={{ 
-                  color: gameState.winner === 'human' ? '#4caf50' : gameState.winner === 'ai' ? '#f44336' : '#ff9800',
+                  color: gameState.winner === 'human' ? '#27ae60' : gameState.winner === 'ai' ? '#c0392b' : '#f39c12',
                   fontWeight: 'bold'
                 }}>
-                  {gameState.winner === 'human' ? '🎉 You Won!' : 
+                  {gameState.winner === 'human' ? '👑 You Won!' : 
                    gameState.winner === 'ai' ? '🤖 AI Won!' : '🤝 Tie!'}
                 </div>
               )}
@@ -294,41 +584,60 @@ function App() {
             {/* Game Messages History */}
             <div style={{
               background: '#fafafa',
-              padding: '1rem',
               borderRadius: '8px',
               marginBottom: '2rem',
-              maxHeight: '300px',
-              overflowY: 'auto'
             }}>
-              <h3>Game History</h3>
-              {!gameState.messages || gameState.messages.length === 0 ? (
-                <p>No messages yet. Game is starting...</p>
-              ) : (
-                gameState.messages.map((msg, idx) => (
-                  <div key={idx} style={{
-                    margin: '0.5rem 0',
-                    padding: '0.5rem',
-                    background: msg.player === 'human' ? '#e3f2fd' : '#fff3e0',
-                    borderRadius: '4px',
-                    borderLeft: `4px solid ${msg.player === 'human' ? '#2196f3' : '#ff9800'}`
-                  }}>
-                    <strong>
-                      Round {msg.round_num} - {msg.player === 'human' ? 'You' : 'AI'} ({msg.role}):
-                    </strong>
-                    {msg.proposal !== null && (
-                      <span> Proposed {msg.proposal} points for you, {10 - msg.proposal} for AI</span>
-                    )}
-                    {msg.decision !== null && (
-                      <span> {msg.decision ? 'Accepted' : 'Rejected'} the proposal</span>
-                    )}
-                    {msg.message && (
-                      <div style={{ fontStyle: 'italic', marginTop: '0.25rem' }}>
-                        "{msg.message}"
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
+              <h3 style={{ padding: '1rem', margin: 0, borderBottom: '1px solid #eee' }}>Game History</h3>
+              <div style={{
+                maxHeight: '300px',
+                overflowY: 'auto',
+                padding: '1rem'
+              }}>
+                {!gameState.messages || gameState.messages.length === 0 ? (
+                  <p>No messages yet. Game is starting...</p>
+                ) : (
+                  <>
+                    {gameState.messages.map((msg, idx) => (
+                      <React.Fragment key={idx}>
+                        {idx === 0 || msg.round_num !== gameState.messages[idx - 1].round_num ? (
+                          <div style={{
+                            marginTop: idx > 0 ? '1.5rem' : 0,
+                            marginBottom: '0.5rem',
+                            color: '#666',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold'
+                          }}>
+                            Round {msg.round_num}
+                          </div>
+                        ) : null}
+                        <div style={{
+                          margin: '0.5rem 0',
+                          padding: '0.5rem',
+                          background: msg.player === 'human' ? '#e3f2fd' : '#fff3e0',
+                          borderRadius: '4px',
+                          borderLeft: `4px solid ${msg.player === 'human' ? '#2196f3' : '#ff9800'}`
+                        }}>
+                          <strong>
+                            {msg.player === 'human' ? 'You' : 'AI'}:
+                          </strong>
+                          {msg.proposal !== null && (
+                            <span> Proposed {numberToHieroglyphs(msg.proposal)} ({msg.proposal}) for you, {numberToHieroglyphs(10 - msg.proposal)} ({10 - msg.proposal}) for AI</span>
+                          )}
+                          {msg.decision !== null && (
+                            <span> {msg.decision ? 'Accepted ✅' : 'Rejected ❌'}</span>
+                          )}
+                          {msg.message && (
+                            <div style={{ fontStyle: 'italic', marginTop: '0.25rem' }}>
+                              "{msg.message}"
+                            </div>
+                          )}
+                        </div>
+                      </React.Fragment>
+                    ))}
+                    <div ref={messagesEndRef} />
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Game Actions */}
@@ -354,7 +663,7 @@ function App() {
                     <textarea
                       placeholder="Your message to the AI (max 256 characters)"
                       value={proposalMessage}
-                      onChange={(e) => setProposalMessage(e.target.value.slice(0, 256))}
+                      onChange={handleProposalMessageChange}
                       style={{
                         width: '100%',
                         height: '80px',
@@ -399,7 +708,7 @@ function App() {
                     <textarea
                       placeholder="Your response message (max 256 characters)"
                       value={decisionMessage}
-                      onChange={(e) => setDecisionMessage(e.target.value.slice(0, 256))}
+                      onChange={handleDecisionMessageChange}
                       style={{
                         width: '100%',
                         height: '80px',
@@ -461,7 +770,7 @@ function App() {
                   onClick={startNewGame}
                   disabled={loading}
                   style={{
-                    background: '#667eea',
+                    background: '#2c3e50',
                     color: 'white',
                     border: 'none',
                     padding: '1rem 2rem',
@@ -472,9 +781,72 @@ function App() {
                 >
                   Play Again
                 </button>
+
+                {/* Leaderboard */}
+                <div style={{ 
+                  marginTop: '2rem',
+                  background: '#f5f5f5',
+                  padding: '1.5rem',
+                  borderRadius: '8px'
+                }}>
+                  <h2>👑 Leaderboard</h2>
+                  <LeaderboardControls />
+                  <LeaderboardTable entries={leaderboard} maxHeight="400px" sortBy={leaderboardSort} />
+                </div>
               </div>
             )}
           </>
+        )}
+
+        {/* Full Leaderboard Modal */}
+        {showFullLeaderboard && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '2rem',
+              borderRadius: '12px',
+              maxWidth: '800px',
+              width: '90%',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '1rem'
+              }}>
+                <h2 style={{ margin: 0 }}>👑 Full Leaderboard</h2>
+                <button
+                  onClick={() => setShowFullLeaderboard(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '1.5rem',
+                    cursor: 'pointer',
+                    padding: '0.5rem'
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <LeaderboardControls />
+              <LeaderboardTable entries={leaderboard} maxHeight="calc(90vh - 150px)" sortBy={leaderboardSort} />
+            </div>
+          </div>
         )}
 
         {showNameDialog && (
@@ -497,12 +869,13 @@ function App() {
               maxWidth: '500px',
               width: '90%'
             }}>
-              <h2>🎉 Congratulations! You Won! 🎉</h2>
+              <h2>🎉 Congratulations! You Won! 👑</h2>
               <p>Enter your name to be added to the leaderboard:</p>
               <input
                 type="text"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
+                onKeyPress={handlePlayerNameKeyPress}
                 placeholder="Your name"
                 style={{
                   width: '100%',
@@ -531,7 +904,7 @@ function App() {
                     padding: '0.5rem 1rem',
                     borderRadius: '4px',
                     border: 'none',
-                    background: '#4caf50',
+                    background: '#2c3e50',
                     color: 'white'
                   }}
                 >
