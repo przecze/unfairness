@@ -36,8 +36,8 @@ services:
     networks:
       - localnet
       - nginx-proxy
-    #ports:
-    #  - 127.0.0.1:3000:80
+    ports:
+      - 127.0.0.1:3000:80
     restart: always
 
   mongodb:

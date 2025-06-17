@@ -5,7 +5,7 @@ from typing import List, Optional, Annotated, Union
 from dataclasses import dataclass, asdict
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
 from loguru import logger
 import uuid
@@ -14,6 +14,7 @@ from pymongo.server_api import ServerApi
 from bson import ObjectId
 from typing import Optional
 from datetime import datetime
+import re
 
 # Load environment variables
 load_dotenv()
@@ -73,17 +74,23 @@ class GameState:
 
 # Pydantic models for API
 class NewGameRequest(BaseModel):
-    player_name: Optional[str] = None
+    player_name: Optional[str] = Field(None, min_length=1, max_length=50)
+
+    @validator('player_name')
+    def validate_player_name(cls, v):
+        if v is not None and not v.strip():
+            return None
+        return v
 
 class ProposalRequest(BaseModel):
     session_id: str
-    human_points: int  # Points for human (0-10)
-    message: str
+    human_points: int = Field(..., ge=0, le=10)  # Points for human (0-10)
+    message: str = Field(..., max_length=256)
 
 class DecisionRequest(BaseModel):
     session_id: str
     accept: bool
-    message: str
+    message: str = Field(..., max_length=256)
 
 class GameStateResponse(BaseModel):
     session_id: str
@@ -93,9 +100,18 @@ class GameStateResponse(BaseModel):
     messages: List[dict]
     game_over: bool
     winner: Optional[str] = None
+    player_name: Optional[str] = None
+    created_at: Optional[str] = None
+    model_name: str = "anthropic/claude-4-sonnet-20250522"  # Update model name
 
 class UpdateGameRequest(BaseModel):
-    player_name: Optional[str] = None
+    player_name: Optional[str] = Field(None, min_length=1, max_length=50)
+
+class LeaderboardEntry(BaseModel):
+    player_name: str
+    human_score: int
+    ai_score: int
+    created_at: str
 
 class MongoGameStore:
     def __init__(self):
@@ -175,7 +191,7 @@ async def call_openrouter_api(messages: List[dict]) -> str:
     }
     
     payload = {
-        "model": "anthropic/claude-sonnet-4",  # Using a good model for reasoning
+        "model": "anthropic/claude-4-sonnet-20250522",  # Using a good model for reasoning
         "messages": messages,
         "max_tokens": 300,
         "temperature": 0.
@@ -299,7 +315,10 @@ async def get_game_state(session_id: str):
         ai_score=game_state.ai_score,
         messages=messages_dict,
         game_over=game_state.game_over,
-        winner=winner
+        winner=winner,
+        player_name=game_state.player_name,
+        created_at=game_state.created_at,
+        model_name="anthropic/claude-4-sonnet-20250522"  # Explicitly include model name
     )
 
 @app.post("/api/propose")
@@ -476,6 +495,55 @@ async def update_game(session_id: str, request: UpdateGameRequest):
         await app.mongodb.update_game(game_state)
     
     return await get_game_state(session_id)
+
+@app.get("/api/leaderboard")
+async def get_leaderboard(sort_by: str = "score", page: int = 1, page_size: int = 10):
+    """Get sorted leaderboard entries
+    
+    Args:
+        sort_by: Either "score" (player score only) or "difference" (player score - AI score)
+        page: Page number (1-based)
+        page_size: Number of entries per page
+    """
+    # Get all completed games with player names
+    games = list(app.mongodb.games.find({
+        "game_over": True,
+        "player_name": {
+            "$exists": True,
+            "$nin": [None, ""]  # Filter out both None and empty string
+        }
+    }))
+    logger.info([{k:v for k,v in game.items() if k != "messages"} for game in games])
+    
+    entries = []
+    for game in games:
+        entries.append(LeaderboardEntry(
+            player_name=game["player_name"],
+            human_score=game["human_score"],
+            ai_score=game["ai_score"],
+            created_at=game["created_at"]
+        ))
+    
+    # Sort based on the requested method
+    if sort_by == "difference":
+        # Sort by score difference (desc), then by human score (desc), then by creation date (asc)
+        entries.sort(key=lambda x: (-(x.human_score - x.ai_score), -x.human_score, x.created_at))
+    else:
+        # Sort by human score (desc), then by AI score (asc), then by creation date (asc)
+        entries.sort(key=lambda x: (-x.human_score, x.ai_score, x.created_at))
+    
+    # Calculate pagination
+    total_entries = len(entries)
+    total_pages = (total_entries + page_size - 1) // page_size
+    start_idx = (page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_entries)
+    
+    return {
+        "entries": entries[start_idx:end_idx],
+        "total_entries": total_entries,
+        "total_pages": total_pages,
+        "current_page": page
+    }
 
 @app.get("/health")
 async def health_check():
