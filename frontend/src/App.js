@@ -7,6 +7,55 @@ const STORAGE_KEY = 'unfairness_player_name';
 console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('API_BASE:', API_BASE);
 
+function Footer() {
+  return (
+    <footer style={{
+      marginTop: '3rem',
+      padding: '2rem 0 1rem',
+      borderTop: '1px solid #e0e0e0',
+      textAlign: 'center',
+      color: '#666',
+      fontSize: '0.9rem'
+    }}>
+      <div style={{ marginBottom: '0.5rem' }}>
+        © 2025 Jan Czechowski
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', flexWrap: 'wrap' }}>
+        <a
+          href="https://janczechowski.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: '#333',
+            textDecoration: 'underline',
+            fontSize: '0.9rem',
+            transition: 'color 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.target.style.color = '#667eea'}
+          onMouseLeave={(e) => e.target.style.color = '#333'}
+        >
+          janczechowski.com
+        </a>
+        <a
+          href="https://github.com/przecze/unfairness"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: '#333',
+            textDecoration: 'underline',
+            fontSize: '0.9rem',
+            transition: 'color 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.target.style.color = '#667eea'}
+          onMouseLeave={(e) => e.target.style.color = '#333'}
+        >
+          View Code on GitHub
+        </a>
+      </div>
+    </footer>
+  );
+}
+
 function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score' }) {
   return (
     <div style={{
@@ -900,6 +949,8 @@ function App() {
             </div>
           </div>
         )}
+
+        <Footer />
       </div>
     </div>
   );
