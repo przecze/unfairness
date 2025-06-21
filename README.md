@@ -1,4 +1,4 @@
-# "Trust me, Claude" Setup Guide
+# "Unfairness" Setup Guide
 
 ## Prerequisites
 

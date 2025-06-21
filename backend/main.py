@@ -30,7 +30,7 @@ if not OPENROUTER_API_KEY or OPENROUTER_API_KEY in ["placeholder_replace_with_re
 
 logger.info(f"✅ OpenRouter API key loaded successfully (length: {len(OPENROUTER_API_KEY)})")
 
-app = FastAPI(title="TrustMeClaude Backend")
+app = FastAPI(title="Unfairness Backend")
 
 # Add CORS middleware
 app.add_middleware(
@@ -115,9 +115,9 @@ class LeaderboardEntry(BaseModel):
 
 class MongoGameStore:
     def __init__(self):
-        mongodb_url = "mongodb://mongodb:27017/trustmeclaude"
+        mongodb_url = "mongodb://mongodb:27017/unfairness"
         self.client = MongoClient(mongodb_url, server_api=ServerApi('1'))
-        self.db = self.client.trustmeclaude
+        self.db = self.client.unfairness
         self.games = self.db.games
 
         logger.info(f"Trying to connect to {mongodb_url}")
@@ -284,7 +284,7 @@ Remember: You want to maximize YOUR total points over all 6 rounds. Consider wha
 
 @app.get("/")
 async def root():
-    return {"message": "TrustMeClaude Backend is running!", "api_configured": True}
+    return {"message": "Unfairness Backend is running!", "api_configured": True}
 
 @app.post("/api/new-game")
 async def new_game(request: NewGameRequest, x_real_ip: Annotated[Union[str, None], Header()] = None):
@@ -547,4 +547,4 @@ async def get_leaderboard(sort_by: str = "score", page: int = 1, page_size: int 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "message": "TrustMeClaude is ready to play!", "api_configured": True} 
+    return {"status": "healthy", "message": "Unfairness is ready to play!", "api_configured": True} 

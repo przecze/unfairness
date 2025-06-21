@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 const API_BASE = '/api';
-const STORAGE_KEY = 'trustmeclaude_player_name';
+const STORAGE_KEY = 'unfairness_player_name';
 
 // Debug logging
 console.log('NODE_ENV:', process.env.NODE_ENV);
