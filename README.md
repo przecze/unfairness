@@ -1,5 +1,7 @@
-# "Unfairness" Setup Guide
+# Unfairness - AI prompting challenge
+Play now at [unfairness.janczechowski.com](https://unfairness.janczechowski.com)
 
+# Local setup guide
 ## Prerequisites
 
 1. Get an OpenRouter API key:
