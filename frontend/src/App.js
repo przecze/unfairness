@@ -135,6 +135,10 @@ function App() {
   // Add ref for scrolling
   const messagesEndRef = useRef(null);
 
+  // Determine first AI message index and displayable model name (strip provider prefix like "anthropic/")
+  const firstAiIndex = gameState?.messages?.findIndex(m => m.player === 'ai');
+  const modelDisplayName = gameState?.model_name ? gameState.model_name.replace(/^anthropic\//, '') : '';
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -653,7 +657,7 @@ function App() {
                           borderLeft: `4px solid ${msg.player === 'human' ? '#2196f3' : '#ff9800'}`
                         }}>
                           <strong>
-                            {msg.player === 'human' ? 'You' : 'AI'}:
+                            {msg.player === 'human' ? 'You' : (idx === firstAiIndex && modelDisplayName ? `AI (${modelDisplayName})` : 'AI')}:
                           </strong>
                           {msg.role === 'proposer' && msg.proposal !== null && (
                             <span> Proposed {msg.proposal} points for you, {10 - msg.proposal} points for AI</span>
