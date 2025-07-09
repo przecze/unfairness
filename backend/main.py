@@ -515,7 +515,6 @@ async def get_leaderboard(sort_by: str = "score", page: int = 1, page_size: int 
             "$nin": [None, ""]  # Filter out both None and empty string
         }
     }))
-    logger.info([{k:v for k,v in game.items() if k != "messages"} for game in games])
     
     entries = []
     for game in games:
