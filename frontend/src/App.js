@@ -83,6 +83,7 @@ function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score' }) {
             {sortBy === 'score' && (
               <th style={{ padding: '0.75rem' }}>Diff</th>
             )}
+            <th style={{ padding: '0.75rem' }}>Msg Chars</th>
             <th style={{ padding: '0.75rem' }}>Date</th>
           </tr>
         </thead>
@@ -103,6 +104,7 @@ function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score' }) {
               {sortBy === 'score' && (
                 <td style={{ padding: '0.75rem' }}>{entry.human_score - entry.ai_score}</td>
               )}
+              <td style={{ padding: '0.75rem' }}>{entry.player_message_chars || 0}</td>
               <td style={{ padding: '0.75rem' }}>
                 {new Date(entry.created_at).toLocaleDateString()}
               </td>
