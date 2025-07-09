@@ -56,7 +56,7 @@ function Footer() {
   );
 }
 
-function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score' }) {
+function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score', currentPage = 1, pageSize = 10 }) {
   return (
     <div style={{
       maxHeight,
@@ -91,10 +91,10 @@ function LeaderboardTable({ entries, maxHeight = '400px', sortBy = 'score' }) {
           {entries.map((entry, index) => (
             <tr key={index} style={{
               borderBottom: '1px solid #ddd',
-              background: index === 0 ? '#fff3e0' : index % 2 === 0 ? '#fff' : '#f9f9f9',
-              fontWeight: index === 0 ? 'bold' : 'normal'
+              background: (currentPage - 1) * pageSize + index + 1 === 1 ? '#fff3e0' : index % 2 === 0 ? '#fff' : '#f9f9f9',
+              fontWeight: (currentPage - 1) * pageSize + index + 1 === 1 ? 'bold' : 'normal'
             }}>
-              <td style={{ padding: '0.75rem' }}>{index + 1}</td>
+              <td style={{ padding: '0.75rem' }}>{(currentPage - 1) * pageSize + index + 1}</td>
               <td style={{ padding: '0.75rem' }}>{entry.player_name}</td>
               {sortBy === 'difference' && (
                 <td style={{ padding: '0.75rem' }}>{entry.human_score - entry.ai_score}</td>
@@ -124,6 +124,7 @@ function App() {
   const [showNameDialog, setShowNameDialog] = useState(false);
   const [playerName, setPlayerName] = useState('');
   const [leaderboard, setLeaderboard] = useState([]);
+  const [leaderboardPreview, setLeaderboardPreview] = useState([]);
   const [showFullLeaderboard, setShowFullLeaderboard] = useState(false);
   const [leaderboardSort, setLeaderboardSort] = useState('score');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
@@ -150,6 +151,18 @@ function App() {
     scrollToBottom();
   }, [gameState?.messages]);
 
+  const fetchLeaderboardPreview = async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/leaderboard?sort_by=${leaderboardSort}&page=1&page_size=4`
+      );
+      const data = await response.json();
+      setLeaderboardPreview(data.entries);
+    } catch (err) {
+      console.error('Failed to fetch leaderboard preview:', err);
+    }
+  };
+
   const fetchLeaderboard = async () => {
     try {
       const response = await fetch(
@@ -170,17 +183,25 @@ function App() {
       setPlayerName(savedName.trim());
     }
     // Fetch leaderboard on initial load
+    fetchLeaderboardPreview();
     fetchLeaderboard();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch leaderboard when game is over, sort changes, or page changes
+  // Fetch leaderboard when game is over or sort changes
   useEffect(() => {
-    if (gameState?.game_over || leaderboardSort || leaderboardPage) {
+    if (gameState?.game_over || leaderboardSort) {
+      fetchLeaderboardPreview();
       fetchLeaderboard();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState?.game_over, leaderboardSort, leaderboardPage]);
+  }, [gameState?.game_over, leaderboardSort]);
+
+  // Fetch full leaderboard when page changes
+  useEffect(() => {
+    fetchLeaderboard();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaderboardPage]);
 
   // Check if player is a winner
   const isWinner = (state) => {
@@ -560,7 +581,7 @@ function App() {
             </button>
 
             {/* Top 4 Leaderboard Preview */}
-            {leaderboard.length > 0 && (
+            {leaderboardPreview.length > 0 && (
               <div style={{ 
                 marginTop: '3rem',
                 background: '#f5f5f5',
@@ -571,7 +592,7 @@ function App() {
               }}>
                 <h2 style={{ marginBottom: '1rem' }}>👑 Top Players</h2>
                 <LeaderboardControls isPreview={true} />
-                <LeaderboardTable entries={leaderboard.slice(0, 4)} maxHeight="300px" sortBy={leaderboardSort} />
+                <LeaderboardTable entries={leaderboardPreview} maxHeight="300px" sortBy={leaderboardSort} currentPage={1} pageSize={4} />
                 <button
                   onClick={() => setShowFullLeaderboard(true)}
                   style={{
@@ -832,7 +853,7 @@ function App() {
                 }}>
                   <h2>👑 Leaderboard</h2>
                   <LeaderboardControls />
-                  <LeaderboardTable entries={leaderboard} maxHeight="400px" sortBy={leaderboardSort} />
+                  <LeaderboardTable entries={leaderboard} maxHeight="400px" sortBy={leaderboardSort} currentPage={leaderboardPage} pageSize={10} />
                 </div>
               </div>
             )}
@@ -885,7 +906,7 @@ function App() {
                 </button>
               </div>
               <LeaderboardControls />
-              <LeaderboardTable entries={leaderboard} maxHeight="calc(90vh - 150px)" sortBy={leaderboardSort} />
+                              <LeaderboardTable entries={leaderboard} maxHeight="calc(90vh - 150px)" sortBy={leaderboardSort} currentPage={leaderboardPage} pageSize={10} />
             </div>
           </div>
         )}
