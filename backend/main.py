@@ -112,6 +112,7 @@ class LeaderboardEntry(BaseModel):
     human_score: int
     ai_score: int
     created_at: str
+    player_message_chars: int = 0
 
 class MongoGameStore:
     def __init__(self):
@@ -502,6 +503,7 @@ async def get_leaderboard(sort_by: str = "score", page: int = 1, page_size: int 
     
     Args:
         sort_by: Either "score" (player score only) or "difference" (player score - AI score)
+                 Note: Player message character count is used as a tie-breaker for both sorting methods
         page: Page number (1-based)
         page_size: Number of entries per page
     """
@@ -517,20 +519,28 @@ async def get_leaderboard(sort_by: str = "score", page: int = 1, page_size: int 
     
     entries = []
     for game in games:
+        # Calculate total character count for player messages
+        player_message_chars = 0
+        if "messages" in game and game["messages"]:
+            for message in game["messages"]:
+                if message.get("player") == "human" and message.get("message"):
+                    player_message_chars += len(message["message"])
+        
         entries.append(LeaderboardEntry(
             player_name=game["player_name"],
             human_score=game["human_score"],
             ai_score=game["ai_score"],
-            created_at=game["created_at"]
+            created_at=game["created_at"],
+            player_message_chars=player_message_chars
         ))
     
     # Sort based on the requested method
     if sort_by == "difference":
-        # Sort by score difference (desc), then by human score (desc), then by creation date (asc)
-        entries.sort(key=lambda x: (-(x.human_score - x.ai_score), -x.human_score, x.created_at))
+        # Sort by score difference (desc), then by human score (desc), then by message chars (asc - fewer is better), then by creation date (asc)
+        entries.sort(key=lambda x: (-(x.human_score - x.ai_score), -x.human_score, x.player_message_chars, x.created_at))
     else:
-        # Sort by human score (desc), then by AI score (asc), then by creation date (asc)
-        entries.sort(key=lambda x: (-x.human_score, x.ai_score, x.created_at))
+        # Sort by human score (desc), then by AI score (asc), then by message chars (asc - fewer is better), then by creation date (asc)
+        entries.sort(key=lambda x: (-x.human_score, x.ai_score, x.player_message_chars, x.created_at))
     
     # Calculate pagination
     total_entries = len(entries)
