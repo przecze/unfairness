@@ -37,7 +37,7 @@ services:
       - localnet
       - nginx-proxy
     ports:
-      - 127.0.0.1:3000:80
+      - 127.0.0.1:3004:80
     restart: always
 
   mongodb:
@@ -57,7 +57,7 @@ services:
       ME_CONFIG_BASICAUTH: "false"
       ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
     ports:
-      - "127.0.0.1:4000:8081"
+      - "127.0.0.1:4001:8081"
     restart: always
 
 networks:

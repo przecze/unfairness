@@ -224,7 +224,9 @@ function App() {
       const response = await fetch(`${API_BASE}/new-game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_name: playerName?.trim() || null })
+        body: JSON.stringify({ 
+          player_name: playerName?.trim() || null
+        })
       });
       const data = await response.json();
       setSessionId(data.session_id);
@@ -280,14 +282,18 @@ function App() {
     try {
       const response = await fetch(`${API_BASE}/game/${id}`);
       const data = await response.json();
+      console.log('DEBUG: fetchGameState received data:', data);
       setGameState(data);
     } catch (err) {
       setError('Failed to fetch game state: ' + err.message);
     }
   };
 
-  const makeProposal = async () => {
+  const makeProposal = async (e) => {
     if (!sessionId) return;
+    
+    // Check for debug mode activation (Shift + Ctrl/Cmd + click)
+    const debugMode = e && e.shiftKey && (e.ctrlKey || e.metaKey);
     
     setLoading(true);
     setError('');
@@ -314,7 +320,8 @@ function App() {
         body: JSON.stringify({
           session_id: sessionId,
           human_points: proposalPoints,
-          message: proposalMessage
+          message: proposalMessage,
+          debug_mode: debugMode  // Include debug mode in request
         })
       });
       const data = await response.json();
@@ -612,6 +619,22 @@ function App() {
           </div>
         ) : (
           <>
+            {/* Debug Mode Indicator */}
+            {gameState.debug_mode && (
+              <div style={{
+                background: '#fff3cd',
+                border: '1px solid #ffeaa7',
+                color: '#856404',
+                padding: '0.75rem',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                textAlign: 'center',
+                fontWeight: 'bold'
+              }}>
+                🛠️ DEBUG MODE: AI will accept all proposals | Not counted in leaderboard
+              </div>
+            )}
+
             {/* Game Status */}
             <div style={{
               display: 'flex',
@@ -736,7 +759,7 @@ function App() {
                       }}
                     />
                     <button
-                      onClick={makeProposal}
+                      onClick={(e) => makeProposal(e)}
                       disabled={loading}
                       style={{
                         background: '#4caf50',
