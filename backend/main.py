@@ -67,6 +67,7 @@ class GameState:
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     player_name: Optional[str] = None
+    debug_mode: bool = False  # New field for debug mode
     
     def __post_init__(self):
         if self.messages is None:
@@ -85,7 +86,8 @@ class NewGameRequest(BaseModel):
 class ProposalRequest(BaseModel):
     session_id: str
     human_points: int = Field(..., ge=0, le=10)  # Points for human (0-10)
-    message: str = Field(..., max_length=256)
+    message: str = Field("", max_length=256)
+    debug_mode: bool = False  # New field for debug mode
 
 class DecisionRequest(BaseModel):
     session_id: str
@@ -337,6 +339,10 @@ async def make_proposal(request: ProposalRequest):
     if not 0 <= request.human_points <= 10:
         raise HTTPException(status_code=400, detail="Points must be between 0 and 10")
     
+    # If debug mode is requested, flag the entire game as debug
+    if request.debug_mode:
+        game_state.debug_mode = True
+    
     # Add human proposal
     game_state.messages.append(GameMessage(
         round_num=game_state.current_round,
@@ -351,26 +357,30 @@ async def make_proposal(request: ProposalRequest):
     game_state.updated_at = datetime.utcnow().isoformat()
     await app.mongodb.update_game(game_state)
     
-    # Get AI decision
-    ai_response = await call_openrouter_api(
-        get_ai_decision_prompt(game_state, request.human_points, request.message)
-    )
-    
-    # Parse AI response
-    lines = ai_response.strip().split('\n')
-    ai_decision = None
-    ai_message = ""
-    
-    for line in lines:
-        if line.startswith("DECISION:"):
-            decision_text = line.replace("DECISION:", "").strip().upper()
-            ai_decision = decision_text == "ACCEPT"
-        elif line.startswith("MESSAGE:"):
-            ai_message = line.replace("MESSAGE:", "").strip()[:256]
-    
-    if ai_decision is None:
-        ai_decision = False  # Default to reject if parsing fails
-        ai_message = "I need to reject this proposal."
+    # Get AI decision - force acceptance in debug mode
+    if game_state.debug_mode:
+        ai_decision = True
+        ai_message = "DEBUG MODE: Auto-accepting proposal"
+    else:
+        ai_response = await call_openrouter_api(
+            get_ai_decision_prompt(game_state, request.human_points, request.message)
+        )
+        
+        # Parse AI response
+        lines = ai_response.strip().split('\n')
+        ai_decision = None
+        ai_message = ""
+        
+        for line in lines:
+            if line.startswith("DECISION:"):
+                decision_text = line.replace("DECISION:", "").strip().upper()
+                ai_decision = decision_text == "ACCEPT"
+            elif line.startswith("MESSAGE:"):
+                ai_message = line.replace("MESSAGE:", "").strip()[:256]
+        
+        if ai_decision is None:
+            ai_decision = False  # Default to reject if parsing fails
+            ai_message = "I need to reject this proposal."
     
     # Add AI decision
     game_state.messages.append(GameMessage(
@@ -452,22 +462,27 @@ async def ai_propose(session_id: str):
     if game_state.game_over:
         raise HTTPException(status_code=400, detail="Game is already over")
     
-    # Get AI proposal
-    ai_response = await call_openrouter_api(get_ai_proposal_prompt(game_state))
-    
-    # Parse AI response
-    lines = ai_response.strip().split('\n')
-    ai_proposal = None
-    ai_message = None
-    
-    for line in lines:
-        if line.startswith("PROPOSAL:"):
-            proposal_text = line.replace("PROPOSAL:", "").strip()
-            ai_proposal = int(proposal_text)
-            if not 0 <= ai_proposal <= 10:
-                    raise RuntimeError
-        elif line.startswith("MESSAGE:"):
-            ai_message = line.replace("MESSAGE:", "").strip()[:256]
+    # Get AI proposal - in debug mode, always propose 10 for human
+    if game_state.debug_mode:
+        ai_proposal = 10  # Give all points to human in debug mode
+        ai_message = "DEBUG MODE: Giving you all 10 points"
+    else:
+        # Get AI proposal
+        ai_response = await call_openrouter_api(get_ai_proposal_prompt(game_state))
+        
+        # Parse AI response
+        lines = ai_response.strip().split('\n')
+        ai_proposal = None
+        ai_message = None
+        
+        for line in lines:
+            if line.startswith("PROPOSAL:"):
+                proposal_text = line.replace("PROPOSAL:", "").strip()
+                ai_proposal = int(proposal_text)
+                if not 0 <= ai_proposal <= 10:
+                        raise RuntimeError
+            elif line.startswith("MESSAGE:"):
+                ai_message = line.replace("MESSAGE:", "").strip()[:256]
     
     # Add AI proposal
     game_state.messages.append(GameMessage(
@@ -507,13 +522,17 @@ async def get_leaderboard(sort_by: str = "score", page: int = 1, page_size: int 
         page: Page number (1-based)
         page_size: Number of entries per page
     """
-    # Get all completed games with player names
+    # Get all completed games with player names (excluding debug games)
     games = list(app.mongodb.games.find({
         "game_over": True,
         "player_name": {
             "$exists": True,
             "$nin": [None, ""]  # Filter out both None and empty string
-        }
+        },
+        "$or": [
+            {"debug_mode": {"$exists": False}},  # Games created before debug mode was added
+            {"debug_mode": False}  # Games explicitly not in debug mode
+        ]
     }))
     
     entries = []
