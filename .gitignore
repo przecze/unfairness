@@ -1,0 +1,15 @@
+# Environment
+backend/.env
+
+# Python
+backend/__pycache__/
+*.pyc
+*.pyo
+
+# Vim swap files
+*.swp
+*.swo
+
+# Node
+frontend/node_modules/
+frontend/build/
