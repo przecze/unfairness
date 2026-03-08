@@ -129,6 +129,7 @@ function App() {
   const [leaderboardSort, setLeaderboardSort] = useState('score');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [leaderboardTotalPages, setLeaderboardTotalPages] = useState(1);
+
   
   // Form states
   const [proposalPoints, setProposalPoints] = useState(5);
@@ -205,8 +206,18 @@ function App() {
 
   // Check if player is a winner
   const isWinner = (state) => {
-    if (!state) return false;
-    return state.human_score > 30 || (state.human_score - state.ai_score) > 10;
+    if (!state) {
+      console.log('DEBUG: isWinner - no state');
+      return false;
+    }
+    const result = state.human_score > 30 || (state.human_score - state.ai_score) > 10;
+    console.log('DEBUG: isWinner check', {
+      human_score: state.human_score,
+      ai_score: state.ai_score,
+      difference: state.human_score - state.ai_score,
+      isWinner: result
+    });
+    return result;
   };
 
   // Debug trigger for name dialog
@@ -325,6 +336,7 @@ function App() {
         })
       });
       const data = await response.json();
+      console.log('DEBUG: makeProposal received data:', data);
       setGameState(data);
       setProposalMessage('');
       
@@ -359,6 +371,7 @@ function App() {
         })
       });
       const data = await response.json();
+      console.log('DEBUG: makeDecision received data:', data);
       setGameState(data);
       setDecisionMessage('');
       
@@ -381,6 +394,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' }
       });
       const data = await response.json();
+      console.log('DEBUG: aiPropose received data:', data);
       setGameState(data);
     } catch (err) {
       setError('Failed to get AI proposal: ' + err.message);
@@ -418,8 +432,32 @@ function App() {
 
   // Check for winner after game state updates
   useEffect(() => {
-    if (gameState?.game_over && isWinner(gameState) && !gameState.player_name && !showNameDialog) {
+    console.log('DEBUG: Victory dialog useEffect triggered', {
+      gameState: gameState,
+      game_over: gameState?.game_over,
+      isWinner: gameState ? isWinner(gameState) : 'no gameState',
+      player_name: gameState?.player_name,
+      debug_mode: gameState?.debug_mode,
+      showNameDialog: showNameDialog
+    });
+    
+    // Show victory dialog if:
+    // 1. Normal mode: game over + winner + no name + dialog not showing
+    // 2. Debug mode: game over + winner + dialog not showing (ignore existing name)
+    const shouldShowDialog = gameState?.game_over && isWinner(gameState) && !showNameDialog && 
+                            (gameState?.debug_mode || !gameState.player_name);
+    
+    if (shouldShowDialog) {
+      console.log('DEBUG: All conditions met - showing name dialog');
       setShowNameDialog(true);
+    } else {
+      console.log('DEBUG: Victory dialog conditions not met:', {
+        game_over: gameState?.game_over,
+        isWinner: gameState ? isWinner(gameState) : false,
+        hasPlayerName: !!gameState?.player_name,
+        debugMode: gameState?.debug_mode,
+        dialogAlreadyShowing: showNameDialog
+      });
     }
   }, [gameState, showNameDialog]);
 
