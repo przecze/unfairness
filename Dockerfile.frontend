@@ -1,0 +1,43 @@
+# Multi-stage Dockerfile for frontend dev and production
+# Build context should be project root
+
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files from frontend/
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+# Copy frontend source and build
+COPY frontend/ .
+RUN npm run build
+
+# Production stage with nginx
+FROM nginx:alpine AS production
+
+# Copy built files (CRA outputs to build/)
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Copy nginx config template
+COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+
+# Development stage - just node with dependencies
+FROM node:18-alpine AS development
+
+WORKDIR /app
+
+# Copy package files
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+# Copy source (will be overridden by volumes in docker-compose)
+COPY frontend/ .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
