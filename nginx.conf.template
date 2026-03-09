@@ -35,10 +35,6 @@ http {
     "1"     " 'unsafe-inline'";
   }
 
-  upstream backend {
-    server backend:8000;
-  }
-
   server {
     listen 80;
     server_tokens off;
@@ -62,7 +58,8 @@ http {
       return 404;
     }
 
-    # Dev fallback (CRA dev server) - only works when frontend service is running
+    # Dynamic DNS resolution - re-resolves on each request cycle
+    set $backend_upstream backend:8000;
     set $frontend_upstream frontend:3000;
     resolver 127.0.0.11 ipv6=off valid=30s;
 
@@ -79,7 +76,7 @@ http {
 
     # Backend API
     location /api/ {
-      proxy_pass http://backend/api/;
+      proxy_pass http://$backend_upstream;
       proxy_http_version 1.1;
       proxy_set_header Host $host;
       proxy_set_header X-Real-IP $remote_addr;
@@ -89,7 +86,7 @@ http {
 
     # Health check
     location /health {
-      proxy_pass http://backend/health;
+      proxy_pass http://$backend_upstream;
       proxy_http_version 1.1;
       proxy_set_header Host $host;
       proxy_set_header X-Real-IP $remote_addr;
